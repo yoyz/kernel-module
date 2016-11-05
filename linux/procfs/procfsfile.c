@@ -8,107 +8,98 @@
 #include <linux/proc_fs.h>	/* Necessary because we use the proc fs */
 #include <asm/uaccess.h>	/* for copy_from_user */
 
-#define PROCFS_MAX_SIZE		1024
-#define PROCFS_NAME 		"buffer1k"
+#include <linux/init.h>
+#include <linux/fs.h>
+#include <linux/seq_file.h>
 
-/**
- * This structure hold information about the /proc file
- *
- */
-static struct proc_dir_entry *Our_Proc_File;
+
+
+#define PROCFS_MAX_SIZE		1024*1024
+#define PROCFS_NAME 		"buffer1MiB"
 
 /**
  * The buffer used to store character for this module
- *
  */
 static char procfs_buffer[PROCFS_MAX_SIZE];
 
 /**
  * The size of the buffer
- *
  */
 static unsigned long procfs_buffer_size = 0;
 
-/** 
- * This function is called then the /proc file is read
- *
- */
-int 
-procfile_read(char *buffer,
-	      char **buffer_location,
-	      off_t offset, int buffer_length, int *eof, void *data)
-{
-	int ret;
-	
-	printk(KERN_INFO "procfile_read (/proc/%s) called\n", PROCFS_NAME);
-	
-	if (offset > 0) {
-		/* we have finished to read, return 0 */
-		ret  = 0;
-	} else {
-		/* fill the buffer, return the buffer size */
-		memcpy(buffer, procfs_buffer, procfs_buffer_size);
-		ret = procfs_buffer_size;
-	}
 
-	return ret;
+static ssize_t procfile_read(struct file * file, char __user * buf, size_t count, loff_t * offset)
+{
+  int ret;
+  printk(KERN_INFO "procfile_read (/proc/%s) called\n", PROCFS_NAME);
+  if (count<PROCFS_MAX_SIZE)
+    {
+      memcpy(buf,procfs_buffer,count);
+      ret=count;
+    }
+  else
+    {
+      memcpy(buf,procfs_buffer,PROCFS_MAX_SIZE);
+      ret=PROCFS_MAX_SIZE;
+    }
+
+  
+  return ret;
 }
 
-/**
- * This function is called with the /proc file is written
- *
- */
-int procfile_write(struct file *file, const char *buffer, unsigned long count,
-		   void *data)
+	
+
+
+static ssize_t procfile_write(struct file * file, const char __user * buf, size_t count, loff_t * offset)
 {
-	/* get buffer size */
-	procfs_buffer_size = count;
-	if (procfs_buffer_size > PROCFS_MAX_SIZE ) {
-		procfs_buffer_size = PROCFS_MAX_SIZE;
-	}
+  printk(KERN_INFO "procfile_write (/proc/%s) called\n", PROCFS_NAME);
+  /* get buffer size */
+  int procfs_buffer_size = count;
+  if (procfs_buffer_size > PROCFS_MAX_SIZE ) 
+    {
+      procfs_buffer_size = PROCFS_MAX_SIZE;
+    }
 	
-	/* write data to the buffer */
-	if ( copy_from_user(procfs_buffer, buffer, procfs_buffer_size) ) {
-		return -EFAULT;
-	}
-	
-	return procfs_buffer_size;
+  /* write data to the buffer */
+  if ( copy_from_user(procfs_buffer, buf, procfs_buffer_size) ) 
+    {
+      return -EFAULT;
+    }
+  
+  return procfs_buffer_size;
 }
 
-/**
- *This function is called when the module is loaded
- *
- */
+
+
+static int hz_show(struct seq_file *m, void *v)
+{
+  return 0;
+}
+
+
+static int myprocfile_open(struct inode *inode, struct file *file)
+{
+  return single_open(file, hz_show, NULL);
+}
+
+static const struct file_operations procfile_fops = {
+  .owner      = THIS_MODULE,
+  .open       = myprocfile_open,
+  .release    = single_release,
+  .read       = procfile_read,
+  .write      = procfile_write,
+};
+
 int init_module()
 {
-	/* create the /proc file */
-	Our_Proc_File = create_proc_entry(PROCFS_NAME, 0644, NULL);
-	
-	if (Our_Proc_File == NULL) {
-		remove_proc_entry(PROCFS_NAME, NULL);
-		printk(KERN_ALERT "Error: Could not initialize /proc/%s\n",
-			PROCFS_NAME);
-		return -ENOMEM;
-	}
-
-	Our_Proc_File->read_proc  = procfile_read;
-	Our_Proc_File->write_proc = procfile_write;
-	//Our_Proc_File->owner 	  = THIS_MODULE;
-	Our_Proc_File->mode 	  = S_IFREG | S_IRUGO;
-	Our_Proc_File->uid 	  = 0;
-	Our_Proc_File->gid 	  = 0;
-	Our_Proc_File->size 	  = 37;
-
-	printk(KERN_INFO "/proc/%s created\n", PROCFS_NAME);	
-	return 0;	/* everything is ok */
+  proc_create(PROCFS_NAME, 0, NULL, &procfile_fops);
+  printk(KERN_INFO "/proc/%s created\n", &PROCFS_NAME);	
+  return 0;	/* everything is ok */
 }
 
-/**
- *This function is called when the module is unloaded
- *
- */
+
 void cleanup_module()
 {
-	remove_proc_entry(PROCFS_NAME, NULL);
-	printk(KERN_INFO "/proc/%s removed\n", PROCFS_NAME);
+  remove_proc_entry(PROCFS_NAME,NULL);
+  printk(KERN_INFO "/proc/%s removed\n", PROCFS_NAME);
 }
